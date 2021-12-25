@@ -1,0 +1,64 @@
+---
+title: "Research_Table"
+author: "Anuradha"
+date: "12/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(table1)
+library(knitr)
+library(stringi)
+library(vcd)
+library(car)
+```
+
+
+## Background
+
+## Two grouping 
+
+```{r}
+Two_groups_p_value <- function(x, ...) {
+    # Construct vectors of data y, and groups (strata) g
+    y <- unlist(x)
+    g <- factor(rep(1:length(x), times=sapply(x, length)))
+    
+    if (is.numeric(y)) {
+    
+      lP<- leveneTest(y ~ g)  
+    } else {
+      ev<- chisq.test(table(y, g))
+    }
+  
+    
+    if (is.numeric(y) & lP$`Pr(>F)`[1] >= 0.05) {
+        # For numeric variables, perform a standard 2-sample t-test
+        p <- paste(round(t.test(y ~ g)$p.value,3)," - T test",sep = ",")
+    } else if (is.numeric(y) & lP$`Pr(>F)`[1] < 0.05) {
+        p <- paste(round(t.test(y ~ g,var.equal=F)$p.value,3)," - T test",sep = ",")
+    } else if(all(ev$expected > 5)) {
+        # For categorical variables, perform a chi-squared test of independence
+        p <- paste(round(ev$p.value,3)," - Chi-square test",sep = ",")
+    } else {
+      p <- paste(round(fisher.test(table(y, g))$p.value,3)," - fisher's-square test",sep = ",")
+    }
+    # Format the p-value, using an HTML entity for the less-than sign.
+    # The initial empty string places the output on the line below the variable label.
+    c("", sub("<", "&lt;", p))
+}
+
+mtcars$vs<-as.factor(mtcars$vs)
+mtcars$am<-as.factor(mtcars$am)
+
+table1(~mpg+disp+drat+cyl+vs|am,data = mtcars,overall = F,
+       extra.col=list(`P-value`=Two_groups_p_value),render.missing=NULL)
+
+```
+
