@@ -9,7 +9,6 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
 ```{r}
 library(tidyverse)
 library(table1)
@@ -17,48 +16,123 @@ library(knitr)
 library(stringi)
 library(vcd)
 library(car)
+library(data.table)
 ```
-
 
 ## Background
 
-## Two grouping 
+Grouping studies basically divide according to number of levels in the grouping variable and type of dependency of two levels.
+
+1.  Two levels - Independent Groups
+
+2.  Two levels - Dependent Groups (Paired Sample)
+
+3.  More than two levels
+
+## Two Levels - Independent Groups
 
 ```{r}
-Two_groups_p_value <- function(x, ...) {
+Two_groups_p_value_IG <- function(x, ...) {
     # Construct vectors of data y, and groups (strata) g
     y <- unlist(x)
     g <- factor(rep(1:length(x), times=sapply(x, length)))
-    
-    if (is.numeric(y)) {
-    
-      lP<- leveneTest(y ~ g)  
-    } else {
-      ev<- chisq.test(table(y, g))
-    }
   
+      if (is.numeric(y)) {
+        
+        LT<-leveneTest(y ~ g)$`Pr(>F)`[1]
+        ST<-data.frame(y,g) %>%
+          group_by(g) %>% 
+          summarise(NP=shapiro.test(y)$p.value)
+          
+        if (all(ST[2])>=0.05) {
+          
+          if (LT<0.05) {
+            p <- paste(round(t.test(y ~ g,var.equal=F)$p.value,3)," - T test",sep = ",")
+          } else if (LT>0.05) {
+            p <- paste(round(t.test(y ~ g,var.equal=T)$p.value,3)," - T test",sep = ",")
+          }
+        } else if (any(ST[2])<0.05) {
+          p <- paste(round(wilcox.test(y ~ g)$p.value,3)," - Wilcoxon test",sep = ",")
+        }
+        
+        
+      } else if (is.factor(y)) {
+          CT<-chisq.test(table(y, g))
+          L5<-sum(CT$expected<5)
+          TO<-nrow(CT$expected)*ncol(CT$expected)
+          
+          if (apply(matrix(CT$expected), 2, function(x) all(x > 5))) {
+            p <- paste(round(chisq.test(table(y, g))$p.value,3)," - Chi-square test",sep = ",")
+          } else if ((L5/TO)>=0.5) {
+            p <- paste(round(fisher.test(table(y, g))$p.value,3)," - fisher's-square test",sep = ",")
+          } else {
+            p<-paste("Test can not be performed")
+            }
+            
+      }
     
-    if (is.numeric(y) & lP$`Pr(>F)`[1] >= 0.05) {
-        # For numeric variables, perform a standard 2-sample t-test
-        p <- paste(round(t.test(y ~ g)$p.value,3)," - T test",sep = ",")
-    } else if (is.numeric(y) & lP$`Pr(>F)`[1] < 0.05) {
-        p <- paste(round(t.test(y ~ g,var.equal=F)$p.value,3)," - T test",sep = ",")
-    } else if(all(ev$expected > 5)) {
-        # For categorical variables, perform a chi-squared test of independence
-        p <- paste(round(ev$p.value,3)," - Chi-square test",sep = ",")
-    } else {
-      p <- paste(round(fisher.test(table(y, g))$p.value,3)," - fisher's-square test",sep = ",")
-    }
-    # Format the p-value, using an HTML entity for the less-than sign.
-    # The initial empty string places the output on the line below the variable label.
     c("", sub("<", "&lt;", p))
 }
 
 mtcars$vs<-as.factor(mtcars$vs)
 mtcars$am<-as.factor(mtcars$am)
+mtcars$gear<-as.factor(mtcars$gear)
 
-table1(~mpg+disp+drat+cyl+vs|am,data = mtcars,overall = F,
-       extra.col=list(`P-value`=Two_groups_p_value),render.missing=NULL)
+
+table1(~mpg+disp+drat+cyl+vs+gear|am,data = mtcars,overall = F,
+       extra.col=list(`P-value`=Two_groups_p_value_IG),render.missing=NULL)
 
 ```
 
+## Two levels - Dependent Groups (Paired Sample)
+
+```{r}
+Two_groups_p_value_DG <- function(x, ...) {
+    # Construct vectors of data y, and groups (strata) g
+    y <- unlist(x)
+    g <- factor(rep(1:length(x), times=sapply(x, length)))
+  
+      if (is.numeric(y)) {
+        
+        LT<-leveneTest(y ~ g)$`Pr(>F)`[1]
+        ST<-data.frame(y,g) %>%
+            mutate(rn=rowid(g)) %>% 
+            pivot_wider(names_from = g,values_from = y) %>% 
+            mutate(Diff=.[[2]]-.[[3]]) %>% 
+            summarise(shapiro.test(Diff)$p.value)
+        
+        if (all(ST[[1]])>=0.05) {
+          
+          if (LT<0.05) {
+            p <- paste(round(t.test(y ~ g,var.equal=F,paired = TRUE)$p.value,3)," - Paired T test",sep = ",")
+          } else if (LT>0.05) {
+            p <- paste(round(t.test(y ~ g,var.equal=T,paired = TRUE)$p.value,3)," - Paired T test",sep = ",")
+          }
+        } else if (any(ST[2])<0.05) {
+          p <- paste(round(wilcox.test(y ~ g,paired = TRUE)$p.value,3)," -Paired Wilcoxon test",sep = ",")
+        }
+        
+        
+      } else if (is.factor(y)) {
+          
+            p <- paste(round(mcnemar.test(table(y, g))$p.value,3)," - McNemar test",sep = ",")
+            
+      }
+    
+    c("", sub("<", "&lt;", p))
+}
+
+before <-c(200.1, 190.9, 192.7, 213, 241.4, 196.9, 172.2, 185.5, 205.2, 193.7)
+# Weight of the mice after treatment
+after <-c(392.9, 393.2, 345.1, 393, 434, 427.9, 422, 383.9, 392.3, 352.2)
+# Create a data frame
+my_data <- data.frame( 
+                group = rep(c("before", "after"), each = 10),
+                weight = c(before,  after)
+                )
+
+
+table1(~weight|group,data = my_data,overall = F,
+       extra.col=list(`P-value`=Two_groups_p_value_DG),render.missing=NULL)
+
+```
